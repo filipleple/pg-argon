@@ -33,6 +33,9 @@ void setup() {
 	
 	scanParams.window = (2 * scanParams.interval) / 3 ;
 	BLE.setScanParameters(&scanParams);				// Set the modified scan parameters
+
+	// serial comm. over TX/RX pins, to be connected to nrf52-DK espar handler
+	Serial1.begin(115200);
 }
 
 void loop() {
@@ -59,4 +62,10 @@ void logDevices(int deviceCount, String mode) {
 	}
 
 	Log.info("--------------------------------------------------------");
+
+	//Serial1.print("hello from Argon; ");
+	Serial1.print("found ");
+	Serial1.print(deviceCount);
+	Serial1.println(" devices");
+	
 }
