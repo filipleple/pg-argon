@@ -26,7 +26,7 @@ void setup() {
 	scanParams.version = BLE_API_VERSION;
 	scanParams.size = sizeof(BleScanParams);
 	BLE.getScanParameters(&scanParams);				// Get the default scan parameters
-	scanParams.timeout = 1000;						// Change timeout to 10 seconds
+	scanParams.timeout = 300;						// Change timeout to 10 seconds
 	
 	// Scanning for both 1 MBPS and CODED PHY simultaneously requires scanning window <= 1/2 the scanning interval.
 	// We will widen the window to 2/3 of the interval so automatic override will be tested in simultaneous mode
