@@ -3,6 +3,10 @@
 #define LED_CUSTOM D7
 
 #define N_POS 12
+#define HOLD_MODE_INTERVAL_MS 1000
+#define HOLD_MODE_DROP 6
+
+int HOLD_RSSI = -999;
 
 SerialLogHandler logHandler(LOG_LEVEL_INFO);
 SYSTEM_MODE(AUTOMATIC);
@@ -15,7 +19,7 @@ BleScanParams scanParams;
 
 int count;
 int espar_current_pos = 1;
-float signal_strength_in_position[N_POS];
+int signal_strength_in_position[N_POS];
 int bestRSSI = -999;
 
 enum ARGON_MODES {
@@ -28,6 +32,9 @@ ARGON_MODES current_mode = SCANNING;
 
 void logDevices(int deviceCount, String mode);
 void goto_best_position();
+int scan_for_best_rssi();
+void rotate_espar(int position);
+void espar_hold();
 
 void setup() {
 	pinMode(LED_CUSTOM, OUTPUT);
@@ -62,37 +69,53 @@ void setup() {
 void loop() {
 	switch(current_mode){
 		case SCANNING:
-			scanParams.scan_phys = BLE_PHYS_1MBPS;
-			BLE.setScanParameters(scanParams);
-			count = BLE.scan(scanResults, SCAN_RESULT_MAX);
-			digitalWrite(LED_CUSTOM, HIGH);
-			//logDevices(count, "PHYS_1MBPS (standard)");
-			digitalWrite(LED_CUSTOM, LOW);
+			rotate_espar(espar_current_pos);			
 
-			for (int i = 0; i < count; i++){
-				if (scanResults[i].rssi() > bestRSSI){
-					bestRSSI = scanResults[i].rssi();
-				}
-			}
-			Log.info("Scanning position: %d, found %d devices, best RSSI: %d", espar_current_pos, count, bestRSSI);   
-
+			bestRSSI = scan_for_best_rssi();
+			Log.info("Scanning position: %d, best RSSI: %d", espar_current_pos, bestRSSI);
 			signal_strength_in_position[espar_current_pos-1] = bestRSSI;
-			bestRSSI = -999;
-
+			
+			// after a full rotation, pick and go to the best position
 			if (espar_current_pos <= 11){
-				espar_current_pos++;
-				Serial1.println("rotate next");
+				espar_current_pos++;				
 			}
 			else {
 				goto_best_position();
-			}			
-
+			}
 			break;
+
 		case HOLD_AND_MONITOR:
-			Serial1.println("hold");
+			Log.info("Hold mode; monitoring RSSI");
+			espar_hold();
+			bestRSSI = scan_for_best_rssi();
+			if (bestRSSI < HOLD_RSSI - HOLD_MODE_DROP){
+				Log.info("RSSI drop detected; rescanning");
+				espar_current_pos = 1;
+				rotate_espar(espar_current_pos);
+				current_mode = SCANNING;
+				break;
+			}
+			delay(HOLD_MODE_INTERVAL_MS);
 			break;	
 	}
 	
+}
+
+int scan_for_best_rssi(){
+	int bestRSSI = -999;
+	scanParams.scan_phys = BLE_PHYS_1MBPS;
+	BLE.setScanParameters(scanParams);
+	count = BLE.scan(scanResults, SCAN_RESULT_MAX);
+	digitalWrite(LED_CUSTOM, HIGH);
+	//logDevices(count, "PHYS_1MBPS (standard)");
+	digitalWrite(LED_CUSTOM, LOW);
+
+	for (int i = 0; i < count; i++){
+		if (scanResults[i].rssi() > bestRSSI){
+			bestRSSI = scanResults[i].rssi();
+		}
+	}
+	return bestRSSI;
 }
 
 void goto_best_position(){
@@ -103,17 +126,29 @@ void goto_best_position(){
 			bestSignal = signal_strength_in_position[i];
 			bestPos = i;
 		}
-	}
+	}	
+	rotate_espar(bestPos+1);
 
-	Serial1.print("rotate ");
-	Serial1.println(bestPos);
+	Log.info("Best position found around dir %d\r\n", bestPos+1);
+	Log.info("Going into hold mode\r\n");
 
+	HOLD_RSSI = bestSignal;
 	current_mode = HOLD_AND_MONITOR;
 }
 
-void logDevices(int deviceCount, String mode) {
-	Log.info("Scanning with %s found %d devices", mode.c_str(), deviceCount);   
+void rotate_espar(int position){
+	Serial1.print("rotate ");
+	Serial1.println(position);
+	// get response and verify instead of delay
+	delay(500);
+}
 
+void espar_hold(){
+	Serial1.println("hold");
+}
+
+void logDevices(int deviceCount, String mode) {
+	Log.info("Scanning with %s found %d devices", mode.c_str(), deviceCount); 
 	for (int i = 0; i < deviceCount; i++) {
 		Log.info( 
 			"Device rssi: %d dBm, name: %s",       
@@ -121,7 +156,6 @@ void logDevices(int deviceCount, String mode) {
 			scanResults[i].advertisingData().deviceName().c_str()
 		);
 	}
-
 	Log.info("--------------------------------------------------------");
 
 	//Serial1.print("hello from Argon; ");
