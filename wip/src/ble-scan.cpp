@@ -2,6 +2,8 @@
 
 #define LED_CUSTOM D7
 
+#define N_POS 12
+
 SerialLogHandler logHandler(LOG_LEVEL_INFO);
 SYSTEM_MODE(AUTOMATIC);
 SYSTEM_THREAD(ENABLED);
@@ -11,7 +13,21 @@ BleScanResult scanResults[SCAN_RESULT_MAX];
 BleScanParams scanParams;
 
 
+int count;
+int espar_current_pos = 1;
+float signal_strength_in_position[N_POS];
+int bestRSSI = -999;
+
+enum ARGON_MODES {
+	SCANNING,
+	HOLD_AND_MONITOR
+};
+
+ARGON_MODES current_mode = SCANNING; 
+
+
 void logDevices(int deviceCount, String mode);
+void goto_best_position();
 
 void setup() {
 	pinMode(LED_CUSTOM, OUTPUT);
@@ -36,18 +52,63 @@ void setup() {
 
 	// serial comm. over TX/RX pins, to be connected to nrf52-DK espar handler
 	Serial1.begin(115200);
+
+	Serial1.print("rotate ");
+	Serial1.println(espar_current_pos);
+	delay(5000);	
+
 }
 
 void loop() {
-	int count;
+	switch(current_mode){
+		case SCANNING:
+			scanParams.scan_phys = BLE_PHYS_1MBPS;
+			BLE.setScanParameters(scanParams);
+			count = BLE.scan(scanResults, SCAN_RESULT_MAX);
+			digitalWrite(LED_CUSTOM, HIGH);
+			//logDevices(count, "PHYS_1MBPS (standard)");
+			digitalWrite(LED_CUSTOM, LOW);
+
+			for (int i = 0; i < count; i++){
+				if (scanResults[i].rssi() > bestRSSI){
+					bestRSSI = scanResults[i].rssi();
+				}
+			}
+			Log.info("Scanning position: %d, found %d devices, best RSSI: %d", espar_current_pos, count, bestRSSI);   
+
+			signal_strength_in_position[espar_current_pos-1] = bestRSSI;
+			bestRSSI = -999;
+
+			if (espar_current_pos <= 11){
+				espar_current_pos++;
+				Serial1.println("rotate next");
+			}
+			else {
+				goto_best_position();
+			}			
+
+			break;
+		case HOLD_AND_MONITOR:
+			Serial1.println("hold");
+			break;	
+	}
 	
-	// First, scan and log with standard PHYS_1MBPS
-	scanParams.scan_phys = BLE_PHYS_1MBPS;
-	BLE.setScanParameters(scanParams);
-	count = BLE.scan(scanResults, SCAN_RESULT_MAX);
-	digitalWrite(LED_CUSTOM, HIGH);
-	logDevices(count, "PHYS_1MBPS (standard)");
-	digitalWrite(LED_CUSTOM, LOW);
+}
+
+void goto_best_position(){
+	int bestSignal = -999;
+	int bestPos = -1;
+	for (int i = 0; i < N_POS; i++){
+		if(signal_strength_in_position[i] > bestSignal){
+			bestSignal = signal_strength_in_position[i];
+			bestPos = i;
+		}
+	}
+
+	Serial1.print("rotate ");
+	Serial1.println(bestPos);
+
+	current_mode = HOLD_AND_MONITOR;
 }
 
 void logDevices(int deviceCount, String mode) {
@@ -64,8 +125,6 @@ void logDevices(int deviceCount, String mode) {
 	Log.info("--------------------------------------------------------");
 
 	//Serial1.print("hello from Argon; ");
-	Serial1.print("found ");
-	Serial1.print(deviceCount);
-	Serial1.println(" devices");
+	//Serial1.println("rotate 4");
 	
 }
